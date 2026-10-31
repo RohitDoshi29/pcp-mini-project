@@ -3,26 +3,19 @@ package com.fitness.service;
 import com.fitness.dto.ImprovementReportResponse;
 import com.fitness.dto.ProgressReportResponse;
 import com.fitness.dto.ProgressReportResponse.DailySummary;
-import com.fitness.exception.ResourceNotFoundException;
 import com.fitness.model.Activity;
-import com.fitness.model.Goal;
 import com.fitness.model.User;
 import com.fitness.repository.ActivityRepository;
 import com.fitness.repository.UserRepository;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 
-/**
- * Service class for Progress Reports and Improvement Tracking.
- * 
- * Written using clear, simple Java loops and beginner-friendly logic.
- */
 @Service
-@Transactional(readOnly = true)
 public class ReportService {
 
     private final UserRepository userRepository;
@@ -35,64 +28,35 @@ public class ReportService {
         this.goalService = goalService;
     }
 
-    /**
-     * Generate a progress report with totals, daily logs, and Pie Chart data.
-     * Period can be "WEEKLY" (7 days) or "MONTHLY" (30 days).
-     */
     public ProgressReportResponse generateProgressReport(Long userId, String period) {
-        // Step 1: Verify user exists
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found with ID: " + userId));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
 
-        // Step 2: Determine date range
         LocalDate endDate = LocalDate.now();
-        LocalDate startDate;
-        if ("MONTHLY".equalsIgnoreCase(period)) {
-            startDate = endDate.minusDays(29);
-            period = "MONTHLY";
-        } else {
-            startDate = endDate.minusDays(6);
-            period = "WEEKLY";
-        }
+        LocalDate startDate = "MONTHLY".equalsIgnoreCase(period) ? endDate.minusDays(29) : endDate.minusDays(6);
+        period = "MONTHLY".equalsIgnoreCase(period) ? "MONTHLY" : "WEEKLY";
 
-        // Step 3: Fetch activities from the database for this date range
-        List<Activity> activities = activityRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(
-                userId, startDate, endDate);
+        List<Activity> activities = activityRepository.findByUserIdAndActivityDateBetweenOrderByActivityDateAsc(userId, startDate, endDate);
 
-        // Step 4: Simple loop to calculate totals and Pie Chart categories
         int totalCalories = 0;
         int totalMinutes = 0;
         Map<String, Integer> caloriesByType = new HashMap<>();
         Map<String, Integer> workoutsByType = new HashMap<>();
+        Map<LocalDate, List<Activity>> activitiesByDate = new HashMap<>();
 
-        for (Activity activity : activities) {
-            // Add to totals
-            totalCalories += activity.getCaloriesBurned();
-            totalMinutes += activity.getDurationMinutes();
+        for (Activity a : activities) {
+            totalCalories += a.getCaloriesBurned();
+            totalMinutes += a.getDurationMinutes();
 
-            // Prepare Pie Chart data: Calories & Workouts grouped by Activity Type
-            String typeName = activity.getActivityType().name();
+            String type = a.getActivityType().name();
+            caloriesByType.put(type, caloriesByType.getOrDefault(type, 0) + a.getCaloriesBurned());
+            workoutsByType.put(type, workoutsByType.getOrDefault(type, 0) + 1);
 
-            int currentCaloriesForType = caloriesByType.getOrDefault(typeName, 0);
-            caloriesByType.put(typeName, currentCaloriesForType + activity.getCaloriesBurned());
-
-            int currentCountForType = workoutsByType.getOrDefault(typeName, 0);
-            workoutsByType.put(typeName, currentCountForType + 1);
+            activitiesByDate.computeIfAbsent(a.getActivityDate(), k -> new ArrayList<>()).add(a);
         }
 
         long totalWorkouts = activities.size();
-
-        // Step 5: Calculate averages
-        double avgCaloriesPerWorkout = totalWorkouts > 0 ? (double) totalCalories / totalWorkouts : 0.0;
-        double avgMinutesPerWorkout = totalWorkouts > 0 ? (double) totalMinutes / totalWorkouts : 0.0;
         long daysCount = ChronoUnit.DAYS.between(startDate, endDate) + 1;
-        double avgCaloriesPerDay = daysCount > 0 ? (double) totalCalories / daysCount : 0.0;
-
-        // Step 6: Build day-by-day table data
-        Map<LocalDate, List<Activity>> activitiesByDate = new HashMap<>();
-        for (Activity a : activities) {
-            activitiesByDate.computeIfAbsent(a.getActivityDate(), k -> new ArrayList<>()).add(a);
-        }
 
         List<DailySummary> dailySummaries = new ArrayList<>();
         LocalDate loopDate = startDate;
@@ -108,134 +72,96 @@ public class ReportService {
             loopDate = loopDate.plusDays(1);
         }
 
-        // Step 7: Get active goals
-        List<Goal> goals = goalService.getUserGoals(userId);
-
-        // Step 8: Assemble final report
         ProgressReportResponse report = new ProgressReportResponse();
-        report.setUserId(user.getId());
-        report.setUserName(user.getName());
-        report.setPeriod(period);
-        report.setStartDate(startDate);
-        report.setEndDate(endDate);
-
-        report.setTotalWorkouts(totalWorkouts);
-        report.setTotalCaloriesBurned(totalCalories);
-        report.setTotalDurationMinutes(totalMinutes);
-
-        report.setAverageCaloriesPerWorkout(Math.round(avgCaloriesPerWorkout * 10.0) / 10.0);
-        report.setAverageMinutesPerWorkout(Math.round(avgMinutesPerWorkout * 10.0) / 10.0);
-        report.setAverageCaloriesPerDay(Math.round(avgCaloriesPerDay * 10.0) / 10.0);
-
-        report.setDailyBreakdown(dailySummaries);
-        report.setActiveGoals(goals);
-
-        // Populate Pie Chart maps
-        report.setCaloriesByType(caloriesByType);
-        report.setWorkoutsByType(workoutsByType);
+        report.userId = user.getId();
+        report.userName = user.getName();
+        report.period = period;
+        report.startDate = startDate;
+        report.endDate = endDate;
+        report.totalWorkouts = totalWorkouts;
+        report.totalCaloriesBurned = totalCalories;
+        report.totalDurationMinutes = totalMinutes;
+        report.averageCaloriesPerWorkout = totalWorkouts > 0 ? Math.round(((double) totalCalories / totalWorkouts) * 10.0) / 10.0 : 0.0;
+        report.averageMinutesPerWorkout = totalWorkouts > 0 ? Math.round(((double) totalMinutes / totalWorkouts) * 10.0) / 10.0 : 0.0;
+        report.averageCaloriesPerDay = Math.round(((double) totalCalories / daysCount) * 10.0) / 10.0;
+        report.dailyBreakdown = dailySummaries;
+        report.activeGoals = goalService.getUserGoals(userId);
+        report.caloriesByType = caloriesByType;
+        report.workoutsByType = workoutsByType;
 
         return report;
     }
 
-    /**
-     * Compare This Week vs Last Week to track improvements over time.
-     */
     public ImprovementReportResponse generateImprovementReport(Long userId) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found with ID: " + userId));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
 
         LocalDate today = LocalDate.now();
-
-        // 1. Current Period: Last 7 days
         LocalDate curStart = today.minusDays(6);
         LocalDate curEnd = today;
-
-        // 2. Previous Period: 7 days before that
         LocalDate prevStart = today.minusDays(13);
         LocalDate prevEnd = today.minusDays(7);
 
-        // 3. Fetch data for Current Period
-        Long curWorkouts = activityRepository.countWorkoutsBetween(userId, curStart, curEnd);
-        Integer curCalories = activityRepository.sumCaloriesBurnedBetween(userId, curStart, curEnd);
-        Integer curMinutes = activityRepository.sumDurationMinutesBetween(userId, curStart, curEnd);
+        Long curW = activityRepository.countWorkoutsBetween(userId, curStart, curEnd);
+        Integer curC = activityRepository.sumCaloriesBurnedBetween(userId, curStart, curEnd);
+        Integer curM = activityRepository.sumDurationMinutesBetween(userId, curStart, curEnd);
 
-        // 4. Fetch data for Previous Period
-        Long prevWorkouts = activityRepository.countWorkoutsBetween(userId, prevStart, prevEnd);
+        Long prevW = activityRepository.countWorkoutsBetween(userId, prevStart, prevEnd);
         Integer prevCalories = activityRepository.sumCaloriesBurnedBetween(userId, prevStart, prevEnd);
-        Integer prevMinutes = activityRepository.sumDurationMinutesBetween(userId, prevStart, prevEnd);
+        Integer prevM = activityRepository.sumDurationMinutesBetween(userId, prevStart, prevEnd);
 
-        // Handle nulls safely
-        long cw = curWorkouts != null ? curWorkouts : 0L;
-        int cc = curCalories != null ? curCalories : 0;
-        int cm = curMinutes != null ? curMinutes : 0;
+        long cw = curW != null ? curW : 0L;
+        int cc = curC != null ? curC : 0;
+        int cm = curM != null ? curM : 0;
 
-        long pw = prevWorkouts != null ? prevWorkouts : 0L;
+        long pw = prevW != null ? prevW : 0L;
         int pc = prevCalories != null ? prevCalories : 0;
-        int pm = prevMinutes != null ? prevMinutes : 0;
+        int pm = prevM != null ? prevM : 0;
 
-        // 5. Calculate Differences
         long workoutDiff = cw - pw;
         int calorieDiff = cc - pc;
         int minuteDiff = cm - pm;
 
-        // 6. Calculate Percentage Improvements
-        double workoutPct = calculatePctChange(pw, cw);
-        double caloriePct = calculatePctChange(pc, cc);
-        double minutePct = calculatePctChange(pm, cm);
+        double workoutPct = calcPct(pw, cw);
+        double caloriePct = calcPct(pc, cc);
+        double minutePct = calcPct(pm, cm);
 
-        // 7. Choose simple status & encouraging message
-        String status;
-        String message;
+        String status = (calorieDiff > 0 && workoutDiff >= 0) ? "EXCELLENT_PROGRESS" :
+                        (calorieDiff >= -150 && (cw >= pw || cw >= 3)) ? "STEADY_PROGRESS" : "NEEDS_BOOST";
 
-        if (calorieDiff > 0 && workoutDiff >= 0) {
-            status = "EXCELLENT_PROGRESS";
-            message = String.format("🎉 Outstanding progress! You burned %d more calories (+%.1f%%) and logged %d more workout session(s) than last week. Keep up the momentum!",
-                    calorieDiff, caloriePct, Math.max(workoutDiff, 0));
-        } else if (calorieDiff >= -150 && (cw >= pw || cw >= 3)) {
-            status = "STEADY_PROGRESS";
-            message = "👍 Good consistency! You maintained your workout routine. Regular consistency is key to fitness!";
-        } else {
-            status = "NEEDS_BOOST";
-            message = String.format("💪 You burned %d fewer calories than last week. Let's get active and hit your goals this week!",
-                    Math.abs(calorieDiff));
-        }
+        String message = status.equals("EXCELLENT_PROGRESS")
+                ? String.format("🎉 Great job! You burned %d more calories (+%.1f%%) and logged %d more workout session(s) than last week. Keep up the momentum!", calorieDiff, caloriePct, Math.max(workoutDiff, 0))
+                : status.equals("STEADY_PROGRESS")
+                ? "👍 Good consistency! You maintained your workout routine. Regular consistency is key to fitness!"
+                : String.format("💪 You burned %d fewer calories than last week. Let's get active and hit your goals this week!", Math.abs(calorieDiff));
 
-        // 8. Assemble response
         ImprovementReportResponse report = new ImprovementReportResponse();
-        report.setUserId(user.getId());
-        report.setUserName(user.getName());
-        report.setCurrentPeriodStart(curStart);
-        report.setCurrentPeriodEnd(curEnd);
-        report.setPreviousPeriodStart(prevStart);
-        report.setPreviousPeriodEnd(prevEnd);
-
-        report.setCurrentWorkouts(cw);
-        report.setCurrentCalories(cc);
-        report.setCurrentMinutes(cm);
-
-        report.setPreviousWorkouts(pw);
-        report.setPreviousCalories(pc);
-        report.setPreviousMinutes(pm);
-
-        report.setWorkoutChange(workoutDiff);
-        report.setCalorieChange(calorieDiff);
-        report.setMinuteChange(minuteDiff);
-
-        report.setWorkoutImprovementPct(workoutPct);
-        report.setCalorieImprovementPct(caloriePct);
-        report.setMinuteImprovementPct(minutePct);
-
-        report.setImprovementStatus(status);
-        report.setMotivationalMessage(message);
+        report.userId = user.getId();
+        report.userName = user.getName();
+        report.currentPeriodStart = curStart;
+        report.currentPeriodEnd = curEnd;
+        report.previousPeriodStart = prevStart;
+        report.previousPeriodEnd = prevEnd;
+        report.currentWorkouts = cw;
+        report.currentCalories = cc;
+        report.currentMinutes = cm;
+        report.previousWorkouts = pw;
+        report.previousCalories = pc;
+        report.previousMinutes = pm;
+        report.workoutChange = workoutDiff;
+        report.calorieChange = calorieDiff;
+        report.minuteChange = minuteDiff;
+        report.workoutImprovementPct = workoutPct;
+        report.calorieImprovementPct = caloriePct;
+        report.minuteImprovementPct = minutePct;
+        report.improvementStatus = status;
+        report.motivationalMessage = message;
 
         return report;
     }
 
-    private double calculatePctChange(double previous, double current) {
-        if (previous == 0.0) {
-            return current > 0 ? 100.0 : 0.0;
-        }
-        double change = ((current - previous) / previous) * 100.0;
-        return Math.round(change * 10.0) / 10.0;
+    private double calcPct(double prev, double curr) {
+        if (prev == 0.0) return curr > 0 ? 100.0 : 0.0;
+        return Math.round(((curr - prev) / prev) * 1000.0) / 10.0;
     }
 }

@@ -17,7 +17,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Query(value = "SELECT * FROM users WHERE email = :email LIMIT 1", nativeQuery = true)
     Optional<User> findByEmail(@Param("email") String email);
     
-    // Native SQL: Check if email already exists
+    // check email exists by returning true or false
     @Query(value = "SELECT CASE WHEN COUNT(*) > 0 THEN TRUE ELSE FALSE END FROM users WHERE email = :email", nativeQuery = true)
     boolean existsByEmail(@Param("email") String email);
 }

@@ -40,3 +40,4 @@ CREATE TABLE IF NOT EXISTS goals (
     created_at TIMESTAMP NOT NULL,
     CONSTRAINT fk_goal_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
+
