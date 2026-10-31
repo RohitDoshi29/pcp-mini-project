@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fitness Activity Tracker | Spring Boot</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <!-- Chart.js for Pie and Doughnut Charts -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+    <!-- Navigation Bar -->
+    <header class="navbar">
+        <div class="brand">
+            <span class="brand-icon">⚡</span>
+            <span>FitTracker Pro</span>
+        </div>
+        <div class="nav-actions">
+            <div class="user-selector-wrap">
+                <label for="userSelect" style="font-size:0.85rem; font-weight:600; color:var(--text-muted);">Active User:</label>
+                <select id="userSelect" class="select-input" onchange="onUserChanged()"></select>
+                <button class="btn btn-primary btn-sm" onclick="openModal('modalUser')">+ New User</button>
+            </div>
+            <a href="/swagger-ui.html" target="_blank" class="btn-link" title="Open Interactive API Docs">📖 Swagger API Docs</a>
+            <a href="/h2-console" target="_blank" class="btn-link" title="Open In-Memory DB Console">🗄️ H2 Console</a>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="container">
+
+        <!-- Welcome Banner & Quick Action Buttons -->
+        <section class="welcome-card">
+            <div class="welcome-info">
+                <h1>Welcome back, <span id="userNameDisplay">Loading...</span> 👋</h1>
+                <p id="reportPeriodDisplay">Showing fitness summary and progress metrics</p>
+            </div>
+            <div class="action-buttons">
+                <button class="btn btn-white" onclick="openModal('modalActivity')">
+                    <span>🏃</span> Log Workout
+                </button>
+                <button class="btn btn-outline-white" onclick="openModal('modalGoal')">
+                    <span>🎯</span> Set New Goal
+                </button>
+            </div>
+        </section>
+
+        <!-- Section: Progress Reports Header & Period Toggle -->
+        <div class="section-header">
+            <h2><span>📊</span> Progress Overview</h2>
+            <div class="tab-group">
+                <button id="tabWeekly" class="tab-btn active" onclick="setPeriod('WEEKLY')">Weekly (7 Days)</button>
+                <button id="tabMonthly" class="tab-btn" onclick="setPeriod('MONTHLY')">Monthly (30 Days)</button>
+            </div>
+        </div>
+
+        <!-- Metric KPI Cards Grid -->
+        <section class="kpi-grid">
+            <div class="kpi-card">
+                <div class="kpi-title">
+                    <span>Total Workouts</span>
+                    <span>🏋️</span>
+                </div>
+                <div class="kpi-val" id="kpiWorkouts">0</div>
+                <div class="kpi-sub">Completed sessions</div>
+            </div>
+
+            <div class="kpi-card">
+                <div class="kpi-title">
+                    <span>Calories Burned</span>
+                    <span>🔥</span>
+                </div>
+                <div>
+                    <span class="kpi-val" id="kpiCalories">0</span>
+                    <span class="kpi-unit">kcal</span>
+                </div>
+                <div class="kpi-sub">Energy expended</div>
+            </div>
+
+            <div class="kpi-card">
+                <div class="kpi-title">
+                    <span>Active Time</span>
+                    <span>⏱️</span>
+                </div>
+                <div>
+                    <span class="kpi-val" id="kpiMinutes">0</span>
+                    <span class="kpi-unit">mins</span>
+                </div>
+                <div class="kpi-sub">Total time exercised</div>
+            </div>
+
+            <div class="kpi-card">
+                <div class="kpi-title">
+                    <span>Avg Cal / Session</span>
+                    <span>⚡</span>
+                </div>
+                <div>
+                    <span class="kpi-val" id="kpiAvgCalories">0</span>
+                    <span class="kpi-unit">kcal</span>
+                </div>
+                <div class="kpi-sub">Average intensity per workout</div>
+            </div>
+        </section>
+
+        <!-- Section: Activity & Calorie Breakdown (Pie Charts) -->
+        <div class="section-header">
+            <h2><span>🥧</span> Activity & Calorie Distribution</h2>
+        </div>
+
+        <section class="charts-grid">
+            <div class="chart-card">
+                <h3><span>🔥</span> Calories Burned by Activity Type</h3>
+                <div class="chart-container" id="caloriesChartContainer">
+                    <canvas id="caloriesPieChart"></canvas>
+                </div>
+            </div>
+
+            <div class="chart-card">
+                <h3><span>🏋️</span> Workout Sessions by Activity Type</h3>
+                <div class="chart-container" id="workoutsChartContainer">
+                    <canvas id="workoutsPieChart"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section: Track Improvements Over Time -->
+        <div class="section-header">
+            <h2><span>📈</span> Improvement Over Time (This Week vs Last Week)</h2>
+        </div>
+
+        <section class="improvement-card">
+            <div class="improvement-top">
+                <span style="font-weight:700; font-size:1rem; color:var(--text-main);">Weekly Performance Comparison</span>
+                <span id="improvementBadge" class="badge badge-success">COMPARING DATA...</span>
+            </div>
+            
+            <p id="motivationalMessage" class="improvement-message">Analyzing your workout progress...</p>
+
+            <div class="improvement-stats-row">
+                <div class="comp-item">
+                    <span class="comp-label">Workouts (This vs Last Week)</span>
+                    <div class="comp-values">
+                        <span id="compWorkoutsCur" class="comp-current">0 vs 0</span>
+                        <span id="compWorkoutsPct" class="comp-change text-positive">—</span>
+                    </div>
+                </div>
+
+                <div class="comp-item">
+                    <span class="comp-label">Calories Burned (kcal)</span>
+                    <div class="comp-values">
+                        <span id="compCaloriesCur" class="comp-current">0 vs 0</span>
+                        <span id="compCaloriesPct" class="comp-change text-positive">—</span>
+                    </div>
+                </div>
+
+                <div class="comp-item">
+                    <span class="comp-label">Active Minutes (mins)</span>
+                    <div class="comp-values">
+                        <span id="compMinutesCur" class="comp-current">0 vs 0</span>
+                        <span id="compMinutesPct" class="comp-change text-positive">—</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Two Column Layout: Goals & Daily Breakdown on left, Recent Activity Logs on right -->
+        <div class="dashboard-grid">
+            
+            <!-- Left Column: Active Goals & Daily Breakdown -->
+            <div style="display:flex; flex-direction:column; gap:24px;">
+                
+                <!-- Fitness Goals Panel -->
+                <div class="panel-card">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+                        <h3 style="font-size:1.1rem; font-weight:700;">🎯 Active Fitness Goals</h3>
+                        <button class="btn btn-primary btn-sm" onclick="openModal('modalGoal')">+ Add Goal</button>
+                    </div>
+                    <div id="goalsList" class="goal-list">
+                        <!-- Loaded dynamically via app.js -->
+                    </div>
+                </div>
+
+                <!-- Daily Breakdown Table -->
+                <div class="panel-card">
+                    <h3 style="font-size:1.1rem; font-weight:700; margin-bottom:14px;">📅 Daily Breakdown</h3>
+                    <div class="table-wrap">
+                        <table class="styled-table">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Workouts</th>
+                                    <th>Calories</th>
+                                    <th>Duration</th>
+                                </tr>
+                            </thead>
+                            <tbody id="dailyBreakdownBody">
+                                <!-- Loaded dynamically via app.js -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Right Column: Recent Activities Log -->
+            <div class="panel-card">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+                    <h3 style="font-size:1.1rem; font-weight:700;">📝 Workout History Log</h3>
+                    <button class="btn btn-primary btn-sm" onclick="openModal('modalActivity')">+ Log Activity</button>
+                </div>
+                <div class="table-wrap">
+                    <table class="styled-table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Type</th>
+                                <th>Duration</th>
+                                <th>Calories</th>
+                                <th>Notes</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="activitiesBody">
+                            <!-- Loaded dynamically via app.js -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+
+    </main>
+
+    <!-- Modal: Log Activity -->
+    <div id="modalActivity" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>🏃 Log Daily Workout</h3>
+                <button class="close-btn" onclick="closeModal('modalActivity')">&times;</button>
+            </div>
+            <form id="formActivity" onsubmit="submitActivity(event)">
+                <div class="form-group">
+                    <label for="actType">Activity Type</label>
+                    <select id="actType" class="form-control" required>
+                        <option value="RUNNING">Running</option>
+                        <option value="CYCLING">Cycling</option>
+                        <option value="SWIMMING">Swimming</option>
+                        <option value="WEIGHTLIFTING">Weightlifting / Gym</option>
+                        <option value="WALKING">Walking</option>
+                        <option value="YOGA">Yoga / Stretching</option>
+                        <option value="HIIT">HIIT / Cardio Circuit</option>
+                        <option value="OTHER">Other Activity</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="actDuration">Duration (in Minutes)</label>
+                    <input type="number" id="actDuration" class="form-control" placeholder="e.g. 45" min="1" required>
+                </div>
+                <div class="form-group">
+                    <label for="actCalories">Calories Burned (kcal)</label>
+                    <input type="number" id="actCalories" class="form-control" placeholder="e.g. 350" min="0" required>
+                </div>
+                <div class="form-group">
+                    <label for="actDate">Activity Date</label>
+                    <input type="date" id="actDate" class="form-control" required>
+                </div>
+                <div class="form-group">
+                    <label for="actNotes">Notes / Description (Optional)</label>
+                    <input type="text" id="actNotes" class="form-control" placeholder="e.g. Morning interval run in the park">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-link" onclick="closeModal('modalActivity')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Activity</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: Set Goal -->
+    <div id="modalGoal" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>🎯 Set New Fitness Goal</h3>
+                <button class="close-btn" onclick="closeModal('modalGoal')">&times;</button>
+            </div>
+            <form id="formGoal" onsubmit="submitGoal(event)">
+                <div class="form-group">
+                    <label for="goalTitle">Goal Title</label>
+                    <input type="text" id="goalTitle" class="form-control" placeholder="e.g. Burn 2000 kcal this week" required>
+                </div>
+                <div class="form-group">
+                    <label for="goalType">Goal Type</label>
+                    <select id="goalType" class="form-control" required>
+                        <option value="CALORIES_BURNED">Total Calories Burned (kcal)</option>
+                        <option value="WORKOUT_MINUTES">Total Workout Minutes</option>
+                        <option value="WORKOUT_COUNT">Total Number of Workouts</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="goalTarget">Target Value</label>
+                    <input type="number" step="any" id="goalTarget" class="form-control" placeholder="e.g. 2000" min="1" required>
+                </div>
+                <div class="form-group">
+                    <label for="goalStart">Start Date</label>
+                    <input type="date" id="goalStart" class="form-control" required>
+                </div>
+                <div class="form-group">
+                    <label for="goalEnd">End Date (Target Deadline)</label>
+                    <input type="date" id="goalEnd" class="form-control" required>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-link" onclick="closeModal('modalGoal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Create Goal</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: Add User -->
+    <div id="modalUser" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>👤 Create New User</h3>
+                <button class="close-btn" onclick="closeModal('modalUser')">&times;</button>
+            </div>
+            <form id="formUser" onsubmit="submitUser(event)">
+                <div class="form-group">
+                    <label for="newUserName">Full Name</label>
+                    <input type="text" id="newUserName" class="form-control" placeholder="e.g. Emily Davis" required>
+                </div>
+                <div class="form-group">
+                    <label for="newUserEmail">Email Address</label>
+                    <input type="email" id="newUserEmail" class="form-control" placeholder="e.g. emily@example.com" required>
+                </div>
+                <div class="form-group">
+                    <label for="newUserTarget">Daily Calorie Target (kcal)</label>
+                    <input type="number" id="newUserTarget" class="form-control" placeholder="500" min="100">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-link" onclick="closeModal('modalUser')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Add User</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Application Script -->
+    <script src="/js/app.js"></script>
+</body>
+</html>
+
