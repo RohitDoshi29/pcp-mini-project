@@ -1,12 +1,30 @@
-// Fitness Activity Tracker - Frontend Logic
+/**
+ * ===================================================================
+ * [PRESENTATION POINT] FRONTEND JAVASCRIPT: app.js
+ * ===================================================================
+ * - ROLE: Connects the browser user interface to Spring Boot REST APIs.
+ * - CONCEPTS:
+ *   1. Single-Page Architecture: Uses asynchronous `fetch()` (AJAX) to load and post data
+ *      without full page reloads.
+ *   2. REST API Integration:
+ *      - GET /api/users -> Populates user dropdown
+ *      - GET /api/reports/... -> Loads KPI cards, charts, and breakdown tables
+ *      - POST /api/activities -> Logs a new workout and auto-updates goals
+ *      - POST /api/goals -> Sets a new fitness target
+ *      - DELETE /api/activities/{id} -> Deletes a workout record
+ *   3. Dynamic Visualizations: Uses Chart.js for responsive pie and doughnut charts.
+ * ===================================================================
+ */
 
+// Global State Variables
 let currentUserId = null;
 let currentPeriod = 'WEEKLY'; // 'WEEKLY' or 'MONTHLY'
 
-// Chart.js instances for dynamic updates
+// Chart.js instances (destroyed and recreated when refreshing data)
 let caloriesChartInstance = null;
 let workoutsChartInstance = null;
 
+// Palette for activity category charts & badges
 const ACTIVITY_COLORS = {
     'RUNNING': '#ef4444',       // Red
     'CYCLING': '#0ea5e9',       // Sky Blue
@@ -18,12 +36,19 @@ const ACTIVITY_COLORS = {
     'OTHER': '#64748b'          // Slate Gray
 };
 
-// Initialize on page load
+/**
+ * [LIFECYCLE] On Page Load
+ * Initializes default date inputs and loads initial user list from Spring Boot.
+ */
 document.addEventListener('DOMContentLoaded', () => {
     setupTodayDateInputs();
     loadUsers();
 });
 
+/**
+ * [HELPER] setupTodayDateInputs
+ * Sets default dates on modal forms to today's ISO date string (YYYY-MM-DD).
+ */
 function setupTodayDateInputs() {
     const todayStr = new Date().toISOString().split('T')[0];
     const actDateInput = document.getElementById('actDate');
@@ -33,16 +58,25 @@ function setupTodayDateInputs() {
     if (actDateInput) actDateInput.value = todayStr;
     if (goalStartInput) goalStartInput.value = todayStr;
     if (goalEndInput) {
-        // default 7 days later
+        // default deadline: 7 days from today
         const nextWeek = new Date();
         nextWeek.setDate(nextWeek.getDate() + 7);
         goalEndInput.value = nextWeek.toISOString().split('T')[0];
     }
 }
 
-// -------------------------------------------------------------
-// User Management
-// -------------------------------------------------------------
+// ===================================================================
+// USER MANAGEMENT FUNCTIONS
+// ===================================================================
+
+/**
+ * [FUNCTION] loadUsers
+ * - PURPOSE: Fetches all users from Spring Boot backend (`GET /api/users`).
+ * - FLOW:
+ *   1. Calls backend REST endpoint.
+ *   2. Fills the navbar user dropdown with registered users.
+ *   3. Selects the first user and loads their dashboard.
+ */
 async function loadUsers() {
     try {
         const res = await fetch('/api/users');
@@ -73,12 +107,20 @@ async function loadUsers() {
     }
 }
 
+/**
+ * [FUNCTION] onUserChanged
+ * Triggered when the user selects a different person from the dropdown.
+ */
 function onUserChanged() {
     const select = document.getElementById('userSelect');
     currentUserId = select.value;
     refreshDashboard();
 }
 
+/**
+ * [FUNCTION] setPeriod
+ * Toggles dashboard timeframe between 'WEEKLY' and 'MONTHLY'.
+ */
 function setPeriod(period) {
     currentPeriod = period;
     document.getElementById('tabWeekly').classList.toggle('active', period === 'WEEKLY');
@@ -86,9 +128,14 @@ function setPeriod(period) {
     refreshDashboard();
 }
 
-// -------------------------------------------------------------
-// Dashboard Refresh
-// -------------------------------------------------------------
+// ===================================================================
+// DASHBOARD REFRESH ORCHESTRATION
+// ===================================================================
+
+/**
+ * [FUNCTION] refreshDashboard
+ * - PURPOSE: Concurrently fetches all dashboard widgets in parallel using Promise.all.
+ */
 async function refreshDashboard() {
     if (!currentUserId) return;
     await Promise.all([
@@ -99,7 +146,15 @@ async function refreshDashboard() {
     ]);
 }
 
-// 1. Progress Report (KPIs and Daily Breakdown)
+/**
+ * [FUNCTION 1] loadProgressReport
+ * - PURPOSE: Fetches high-level progress report from backend (`GET /api/reports/weekly/{id}`).
+ * - UPDATES:
+ *   1. Header welcome banner (User name, date interval).
+ *   2. KPI summary cards (Total workouts, calories, duration, averages).
+ *   3. Daily breakdown table.
+ *   4. Calls `renderPieCharts()` to draw interactive Chart.js graphs.
+ */
 async function loadProgressReport() {
     try {
         const endpoint = currentPeriod === 'MONTHLY' 
@@ -109,18 +164,18 @@ async function loadProgressReport() {
         const res = await fetch(endpoint);
         const report = await res.json();
 
-        // Update Welcome banner text
+        // 1. Update Welcome banner text
         document.getElementById('userNameDisplay').textContent = report.userName;
         document.getElementById('reportPeriodDisplay').textContent = 
             `${report.period} Report (${report.startDate} to ${report.endDate})`;
 
-        // Update KPIs
+        // 2. Update KPI Cards
         document.getElementById('kpiWorkouts').textContent = report.totalWorkouts;
         document.getElementById('kpiCalories').textContent = report.totalCaloriesBurned.toLocaleString();
         document.getElementById('kpiMinutes').textContent = report.totalDurationMinutes;
         document.getElementById('kpiAvgCalories').textContent = report.averageCaloriesPerWorkout;
 
-        // Daily Breakdown Table
+        // 3. Update Daily Breakdown Table
         const tbody = document.getElementById('dailyBreakdownBody');
         tbody.innerHTML = '';
 
@@ -140,7 +195,7 @@ async function loadProgressReport() {
             tbody.appendChild(tr);
         });
 
-        // Render Interactive Pie & Doughnut Charts
+        // 4. Render Interactive Pie & Doughnut Charts
         renderPieCharts(report);
 
     } catch (err) {
@@ -148,13 +203,21 @@ async function loadProgressReport() {
     }
 }
 
-// 2. Improvement Report (Compare Current Week vs Previous Week)
+
+/**
+ * [FUNCTION 2] loadImprovementReport
+ * - PURPOSE: Fetches week-over-week comparative metrics (`GET /api/reports/improvements/{id}`).
+ * - UPDATES:
+ *   1. Progress Status Badge (EXCELLENT_PROGRESS, STEADY_PROGRESS, or NEEDS_A_BOOST).
+ *   2. Dynamic motivational message.
+ *   3. Comparative stats showing changes in workouts, calories, and duration.
+ */
 async function loadImprovementReport() {
     try {
         const res = await fetch(`/api/reports/improvements/${currentUserId}`);
         const data = await res.json();
 
-        // Status Badge
+        // 1. Status Badge styling
         const statusBadge = document.getElementById('improvementBadge');
         if (data.improvementStatus === 'EXCELLENT_PROGRESS') {
             statusBadge.className = 'badge badge-success';
@@ -167,10 +230,10 @@ async function loadImprovementReport() {
             statusBadge.textContent = '⚡ NEEDS A BOOST';
         }
 
-        // Motivational Message
+        // 2. Motivational Message
         document.getElementById('motivationalMessage').textContent = data.motivationalMessage;
 
-        // Comparison Stats
+        // 3. Comparison Stats & Percentage Deltas
         document.getElementById('compWorkoutsCur').textContent = `${data.currentWorkouts} vs ${data.previousWorkouts}`;
         renderPctChange('compWorkoutsPct', data.workoutImprovementPct, data.workoutChange);
 
@@ -185,6 +248,10 @@ async function loadImprovementReport() {
     }
 }
 
+/**
+ * [HELPER] renderPctChange
+ * Formats a metric change with +/- signs, arrows (▲ / ▼), and green/red colors.
+ */
 function renderPctChange(elementId, pct, diff) {
     const el = document.getElementById(elementId);
     const sign = diff >= 0 ? '+' : '';
@@ -194,7 +261,11 @@ function renderPctChange(elementId, pct, diff) {
     el.textContent = `${arrow} ${sign}${pct}% (${sign}${diff})`;
 }
 
-// 3. Goals
+/**
+ * [FUNCTION 3] loadGoals
+ * - PURPOSE: Fetches all fitness goals for current user (`GET /api/goals/user/{id}`).
+ * - RENDERS: Goal cards with dynamic progress bars, target units, and status badges.
+ */
 async function loadGoals() {
     try {
         const res = await fetch(`/api/goals/user/${currentUserId}`);
@@ -238,7 +309,11 @@ async function loadGoals() {
     }
 }
 
-// 4. Activities Log Table
+/**
+ * [FUNCTION 4] loadActivities
+ * - PURPOSE: Fetches all logged activities for current user (`GET /api/activities/user/{id}`).
+ * - RENDERS: Table rows showing activity type badges, duration, calories, and delete button.
+ */
 async function loadActivities() {
     try {
         const res = await fetch(`/api/activities/user/${currentUserId}`);
@@ -270,9 +345,15 @@ async function loadActivities() {
     }
 }
 
-// -------------------------------------------------------------
-// Actions: Log Activity, Create Goal, Create User, Delete
-// -------------------------------------------------------------
+// ===================================================================
+// USER ACTIONS (CREATE, LOG, DELETE)
+// ===================================================================
+
+/**
+ * [ACTION 1] submitActivity
+ * - PURPOSE: Sends a new workout to Spring Boot (`POST /api/activities`).
+ * - SIDE EFFECT: Backend automatically refreshes user's active goals!
+ */
 async function submitActivity(e) {
     e.preventDefault();
     const type = document.getElementById('actType').value;
@@ -311,6 +392,10 @@ async function submitActivity(e) {
     }
 }
 
+/**
+ * [ACTION 2] submitGoal
+ * - PURPOSE: Creates a new fitness target (`POST /api/goals`).
+ */
 async function submitGoal(e) {
     e.preventDefault();
     const title = document.getElementById('goalTitle').value;
@@ -349,6 +434,10 @@ async function submitGoal(e) {
     }
 }
 
+/**
+ * [ACTION 3] submitUser
+ * - PURPOSE: Registers a new user account (`POST /api/users`).
+ */
 async function submitUser(e) {
     e.preventDefault();
     const name = document.getElementById('newUserName').value;
@@ -383,6 +472,10 @@ async function submitUser(e) {
     }
 }
 
+/**
+ * [ACTION 4] deleteActivity
+ * - PURPOSE: Deletes a workout record (`DELETE /api/activities/{id}`).
+ */
 async function deleteActivity(id) {
     if (!confirm('Are you sure you want to delete this activity record?')) return;
 
@@ -398,9 +491,15 @@ async function deleteActivity(id) {
     }
 }
 
-// -------------------------------------------------------------
-// Modal Utilities
-// -------------------------------------------------------------
+
+// ===================================================================
+// MODAL & SECURITY UTILITIES
+// ===================================================================
+
+/**
+ * [HELPER] openModal / closeModal
+ * Toggles visibility of Bootstrap / custom popup modals.
+ */
 function openModal(id) {
     const el = document.getElementById(id);
     if (el) el.classList.add('active');
@@ -411,6 +510,11 @@ function closeModal(id) {
     if (el) el.classList.remove('active');
 }
 
+/**
+ * [HELPER] escapeHtml
+ * - PURPOSE: Protects against Cross-Site Scripting (XSS) attacks by escaping
+ *   dangerous HTML characters before inserting text into the DOM.
+ */
 function escapeHtml(text) {
     if (!text) return '';
     return text.replace(/[&<>"']/g, function(m) {
@@ -424,18 +528,31 @@ function escapeHtml(text) {
     });
 }
 
+// ===================================================================
+// CHART VISUALIZATIONS (Chart.js)
+// ===================================================================
 
-// -------------------------------------------------------------
-// Interactive Pie & Doughnut Charts (Chart.js)
-// -------------------------------------------------------------
+/**
+ * [FUNCTION 5] renderPieCharts
+ * - PURPOSE: Renders two interactive charts using Chart.js:
+ *   1. Pie Chart: Calories Burned grouped by Activity Type.
+ *   2. Doughnut Chart: Total Workout Sessions grouped by Activity Type.
+ * - CONCEPTS:
+ *   1. Canvas Rendering: Uses HTML5 `<canvas>` 2D context.
+ *   2. Dynamic Destruction: Destroys previous chart instance before redrawing to prevent canvas memory leaks.
+ *   3. Custom Tooltips: Shows raw number and percentage share of total.
+ */
 function renderPieCharts(report) {
-    // 1. Calories Burned by Activity Type Pie Chart
+    // -------------------------------------------------------------
+    // 1. Calories Burned by Activity Type (Pie Chart)
+    // -------------------------------------------------------------
     const calContainer = document.getElementById('caloriesChartContainer');
     const calCanvas = document.getElementById('caloriesPieChart');
     const calData = report.caloriesByType || {};
     const calLabels = Object.keys(calData);
     const calValues = Object.values(calData);
 
+    // Destroy existing instance to prevent animation/redraw glitches
     if (caloriesChartInstance) {
         caloriesChartInstance.destroy();
         caloriesChartInstance = null;
@@ -495,13 +612,16 @@ function renderPieCharts(report) {
         });
     }
 
-    // 2. Workouts Count by Activity Type Doughnut Chart
+    // -------------------------------------------------------------
+    // 2. Workouts Count by Activity Type (Doughnut Chart)
+    // -------------------------------------------------------------
     const workContainer = document.getElementById('workoutsChartContainer');
     const workCanvas = document.getElementById('workoutsPieChart');
     const workData = report.workoutsByType || {};
     const workLabels = Object.keys(workData);
     const workValues = Object.values(workData);
 
+    // Destroy existing instance to prevent animation/redraw glitches
     if (workoutsChartInstance) {
         workoutsChartInstance.destroy();
         workoutsChartInstance = null;
@@ -561,3 +681,4 @@ function renderPieCharts(report) {
         });
     }
 }
+
